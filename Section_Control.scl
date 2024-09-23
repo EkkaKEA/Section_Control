@@ -1,0 +1,68 @@
+﻿FUNCTION "Section_Control" : Void
+{ S7_Optimized_Access := 'TRUE' }
+AUTHOR : Ekka
+VERSION : 0.1
+   VAR_INPUT 
+      NUM : Int;   // номер в блоке данных
+      ILock : Bool;   // блокировка
+   END_VAR
+
+   VAR_TEMP 
+      Motor : "type_Motor";   // Экземпляр данных мотора
+      Sensor : "type_Sensor";   // Экземпляр данных датчика
+      Status : "type_Status";   // Экземпляр данных статуса
+      boxTime : Time;
+   END_VAR
+
+
+BEGIN
+	#Motor := "Motors".Motor[#NUM]; // Загружаем из DB в локальную
+	#Sensor := "Sensors".Sensor[#NUM]; // Загружаем из DB в локальную
+	#Status := "Statuses".Status[#NUM]; // Загружаем из DB в локальную
+	
+	IF #Sensor.FallingEdge  THEN // датчик "ушел" -  запускаем таймер
+	    #Status.timer1Up := TRUE ;
+	END_IF;
+	
+	IF #Status.timer1Up = TRUE AND #Sensor.RisingEdge THEN //если новый продукт а таймер считает 
+	    #Status.Pause := TRUE; // то пауза
+	    
+	END_IF;
+	
+	#Status.Timer_1.TON(IN :=#Status.timer1Up,
+	                     PT := T#4s,
+	                     ET => #boxTime
+	);
+	 
+	 IF #Status.Timer_1.Q THEN // досчитал - снимаем паузу и отключаем таймер
+	     #Status.Pause := FALSE;
+	     #Status.timer1Up := FALSE;
+	 END_IF;
+	
+	IF #Sensor.RisingEdge THEN // получаем состояние "на датчике" из фронтов.
+	    #Status.Sensor := TRUE ;
+	END_IF;
+	
+	IF #Sensor.FallingEdge THEN // получаем состояние "на датчике" из фронтов.
+	    #Status.Sensor := FALSE;
+	END_IF;
+	
+	
+	
+	// Каскадное отключение секций
+	// Если ошибка мотора или ошибка датчика  или пауза или некуда ехать 
+	IF #Motor.Error
+	    OR #Sensor.MonitoringError
+	    OR (NOT #ILock AND #Status.Sensor )
+	    OR #Status.Pause THEN
+	    
+	    #Motor.SrartForward := FALSE; // тогда стоим
+	ELSE
+	    #Motor.SrartForward := TRUE; // едем
+	END_IF;
+	
+	"Statuses".Status[#NUM] := #Status; // Выгружаем в DB из локальных
+	"Motors".Motor[#NUM] := #Motor; // Выгружаем в DB из локальных
+	
+END_FUNCTION
+
